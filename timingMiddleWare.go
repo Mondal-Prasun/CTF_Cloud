@@ -13,7 +13,7 @@ func timeMiddleWare(next http.Handler) http.Handler {
 
 		duration := time.Since(startTime)
 
-		log.Printf("%s took %v unit time ", r.URL.Path, duration)
+		log.Printf("%s || %s took %v unit time ", r.Method, r.URL.Path, duration)
 
 	})
 

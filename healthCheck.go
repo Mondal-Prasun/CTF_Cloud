@@ -1,15 +1,19 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+)
 
 func healthCheck(w http.ResponseWriter, r *http.Request) {
 
-	data := struct {
-		Message string `json:"msg"`
-	}{
-		Message: "This is a health check",
-	}
+	if r.Method == http.MethodGet {
+		data := struct {
+			Message string `json:"msg"`
+		}{
+			Message: "This is a health check",
+		}
 
-	responseWithJson(w, 201, data)
+		responseWithJson(w, 201, data)
+	}
 
 }
