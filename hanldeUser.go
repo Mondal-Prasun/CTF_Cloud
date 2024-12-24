@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func (dbCfg *dbConfig) insertUserHandler(w http.ResponseWriter, r *http.Request) {
+func (dbCfg *DbConfig) insertUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodPost {
 		dataParam := struct {
@@ -34,7 +34,7 @@ func (dbCfg *dbConfig) insertUserHandler(w http.ResponseWriter, r *http.Request)
 
 }
 
-func (dbCfg *dbConfig) getAllData(w http.ResponseWriter, r *http.Request) {
+func (dbCfg *DbConfig) getAllData(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		res, err := getUsers(dbCfg.sqlDb)
 

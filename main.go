@@ -5,10 +5,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/docker/docker/client"
 )
 
-type dbConfig struct {
+type DbConfig struct {
 	sqlDb *sql.DB
+}
+
+type DockerConfig struct {
+	dockerClinet *client.Client
 }
 
 func main() {
@@ -17,12 +23,19 @@ func main() {
 	mux := http.NewServeMux()
 
 	db := initDataBase()
-
-	dbCfg := dbConfig{
+	defer db.Close()
+	dbCfg := &DbConfig{
 		sqlDb: db,
 	}
 
-	defer db.Close()
+	dcli := initDockerClient()
+	defer dcli.Close()
+
+	dockerCli := &DockerConfig{
+		dockerClinet: dcli,
+	}
+
+	dockerCli.initilizeDockerImage()
 
 	mux.HandleFunc("/health", healthCheck)
 	mux.HandleFunc("/addUser", dbCfg.insertUserHandler)
