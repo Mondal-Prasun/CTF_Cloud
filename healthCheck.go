@@ -14,6 +14,7 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 		}
 
 		responseWithJson(w, 201, data)
+
 	}
 
 }
