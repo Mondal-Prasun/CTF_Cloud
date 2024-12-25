@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	DEFAULT_IMAGE_TAG = "ubuntu:latest"
+	DEFAULT_IMAGE_TAG = "pwjcw/ctf"
 )
 
 func initDockerClient() *client.Client {
@@ -62,38 +62,127 @@ func (dockerCLi *DockerConfig) initilizeDockerImage() {
 }
 
 func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *http.Request) {
+	type ContainerDet struct {
+		ContainerID string `json:"ctnID"`
+		Message     string `json:"msg"`
+	}
+
 	if r.Method == http.MethodPost {
 
-		userData := struct {
-			// Uuid uuid.UUID `json:"uid"`
-			Name string `json:"name"`
-		}{}
+		containerChan := make(chan ContainerDet)
 
-		decoder := json.NewDecoder(r.Body)
+		go func(containrChan chan<- ContainerDet) {
 
-		if err := decoder.Decode(&userData); err != nil {
-			responseWithError(w, 300, "json is not valid..")
-			return
-		}
+			userData := struct {
+				// Uuid uuid.UUID `json:"uid"`
+				Name string `json:"name"`
+			}{}
 
-		containerConfig := &container.Config{
-			Image: DEFAULT_IMAGE_TAG,
-		}
-		///TODO: change [userData.Name] to [userData.Uuid]
-		createdContainer, err := dockerCLi.dockerClinet.ContainerCreate(context.Background(), containerConfig, nil, nil, nil, userData.Name)
+			decoder := json.NewDecoder(r.Body)
 
-		if err != nil {
-			responseWithError(w, 501, fmt.Sprintf("Cannot create container : %s", err.Error()))
-			return
-		}
+			if err := decoder.Decode(&userData); err != nil {
+				responseWithError(w, 300, "json is not valid..")
+				return
+			}
 
-		log.Println("Created :", createdContainer.ID)
+			///TODO: change [userData.Name] to [userData.Uuid]
+			createdContainer, err := dockerCLi.dockerClinet.ContainerCreate(context.Background(), &container.Config{
+				Image: DEFAULT_IMAGE_TAG,
+				Cmd: []string{
+					"tail", "-f", "/dev/null",
+				},
+			}, &container.HostConfig{
+				RestartPolicy: container.RestartPolicy{
+					Name: container.RestartPolicyUnlessStopped,
+				},
+			},
+				nil, nil, userData.Name)
 
-		responseWithJson(w, 202, struct {
-			ContId string `json:"Id"`
-		}{
-			ContId: createdContainer.ID,
-		})
+			if err != nil {
+				responseWithError(w, 501, fmt.Sprintf("Cannot create container : %s", err.Error()))
+				return
+			}
+
+			containrChan <- ContainerDet{ContainerID: createdContainer.ID, Message: "Container created successFully"}
+
+			log.Println("Created :", createdContainer.ID)
+
+		}(containerChan)
+
+		res := <-containerChan
+
+		responseWithJson(w, 202, res)
+	}
+}
+
+func (dockerCLi *DockerConfig) startDockerContainer(w http.ResponseWriter, r *http.Request) {
+	type ContainerStartDet struct {
+		Start   bool   `json:"cntStarted"`
+		Message string `json:"msg"`
+	}
+
+	if r.Method == http.MethodPost {
+		containerStartChan := make(chan ContainerStartDet)
+		go func(startChan chan<- ContainerStartDet) {
+			data := struct {
+				CntId string `json:"containerId"`
+			}{}
+
+			dec := json.NewDecoder(r.Body)
+
+			err := dec.Decode(&data)
+
+			if err != nil {
+				startChan <- ContainerStartDet{Start: false, Message: err.Error()}
+				return
+			}
+
+			err = dockerCLi.dockerClinet.ContainerStart(context.Background(), data.CntId, container.StartOptions{})
+
+			if err != nil {
+				startChan <- ContainerStartDet{Start: false, Message: fmt.Sprintf("Cannot start container: %s", err.Error())}
+				return
+			}
+
+			startChan <- ContainerStartDet{Start: true, Message: "Container started..."}
+		}(containerStartChan)
+
+		start := <-containerStartChan
+
+		responseWithJson(w, 202, start)
 
 	}
 }
+
+// func startDockerContainer2(w http.ResponseWriter, r *http.Request) {
+
+// 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+
+// 	if err != nil {
+// 		log.Println(err.Error())
+// 		return
+// 	}
+
+// 	crCtn, err := cli.ContainerCreate(context.Background(), &container.Config{
+// 		Image: DEFAULT_IMAGE_TAG,
+// 		Cmd: []string{
+// 			"tail", "-f", "/dev/null",
+// 		},
+// 	}, &container.HostConfig{
+// 		RestartPolicy: container.RestartPolicy{
+// 			Name: container.RestartPolicyUnlessStopped,
+// 		},
+// 	}, nil, nil, "test")
+
+// 	if err != nil {
+// 		log.Println(err)
+// 		return
+// 	}
+
+// 	if err := cli.ContainerStart(context.Background(), crCtn.ID, container.StartOptions{}); err != nil {
+// 		log.Println(err.Error())
+// 	}
+
+// 	log.Println("Test container strated")
+
+// }
