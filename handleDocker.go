@@ -9,12 +9,22 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 )
 
 const (
-	DEFAULT_IMAGE_TAG = "pwjcw/ctf"
+	DEFAULT_IMAGE_TAG = "kali-vnc:latest"
+	DEFAULT_CTF_TAG   = "bkimminich/juice-shop:latest"
 )
+
+type UserSession struct {
+	KaliUrl string `json:"Kali-vnc-url"`
+	CtfUrl  string `json:"ctf-url"`
+}
+
+var allSessions map[string]UserSession
 
 func initDockerClient() *client.Client {
 	log.Println("Initilizing docker")
@@ -38,15 +48,32 @@ func (dockerCLi *DockerConfig) initilizeDockerImage() {
 	}
 
 	defaultImageExcist := false
+	defaultCtfImageExcist := false
 
 	for _, image := range allImages {
 		for _, tag := range image.RepoTags {
+
+			if tag == DEFAULT_CTF_TAG {
+				defaultCtfImageExcist = true
+				fmt.Printf("%s :image already exsist\n", DEFAULT_CTF_TAG)
+			}
+
 			if tag == DEFAULT_IMAGE_TAG {
 				defaultImageExcist = true
 				fmt.Printf("%s :image already exsist\n", DEFAULT_IMAGE_TAG)
 
 			}
 		}
+	}
+
+	if !defaultCtfImageExcist {
+		_, err := dockerCLi.dockerClinet.ImagePull(context.Background(), DEFAULT_CTF_TAG, image.PullOptions{})
+
+		if err != nil {
+			log.Fatal("Cannot pull image : ", DEFAULT_IMAGE_TAG)
+		}
+
+		log.Printf("%s is intilized... \n", DEFAULT_IMAGE_TAG)
 	}
 
 	if !defaultImageExcist {
@@ -63,8 +90,10 @@ func (dockerCLi *DockerConfig) initilizeDockerImage() {
 
 func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *http.Request) {
 	type ContainerDet struct {
-		ContainerID string `json:"ctnID"`
-		Message     string `json:"msg"`
+		KaliContainerID string `json:"kaliCtnId"`
+		CtfContainerID  string `json:"ctfCtnId"`
+		UserNetwork     string `json:"netId"`
+		Message         string `json:"msg"`
 	}
 
 	if r.Method == http.MethodPost {
@@ -85,27 +114,79 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 				return
 			}
 
+			////MARK:change userData.Name to userData.Uuid
+			// private network for indevidual user for isolation
+			userNetWorkId := fmt.Sprintf("network-%s", userData.Name)
+			userNet, err := dockerCLi.dockerClinet.NetworkCreate(context.Background(), userNetWorkId, network.CreateOptions{})
+
+			if err != nil {
+				responseWithError(w, 503, err.Error())
+				return
+			}
+
 			///TODO: change [userData.Name] to [userData.Uuid]
-			createdContainer, err := dockerCLi.dockerClinet.ContainerCreate(context.Background(), &container.Config{
+			createdKaliContainer, err := dockerCLi.dockerClinet.ContainerCreate(context.Background(), &container.Config{
 				Image: DEFAULT_IMAGE_TAG,
-				Cmd: []string{
-					"tail", "-f", "/dev/null",
+				Cmd:   []string{"sh", "-c", "dbus-launch vncserver :1 && websockify --web=/usr/share/novnc/ 6969 localhost:5901"},
+				ExposedPorts: nat.PortSet{
+					"6969/tcp": struct{}{},
 				},
 			}, &container.HostConfig{
+				PortBindings: nat.PortMap{
+					"6969/tcp": []nat.PortBinding{
+						{
+							HostIP:   "0.0.0.0",
+							HostPort: fmt.Sprintf("%d", (8000 + len(allSessions)*2 + 1)),
+						},
+					},
+				},
+				NetworkMode: container.NetworkMode(userNetWorkId),
 				RestartPolicy: container.RestartPolicy{
 					Name: container.RestartPolicyUnlessStopped,
 				},
 			},
-				nil, nil, userData.Name)
+				nil, nil,
+				fmt.Sprintf("%s-kali", userData.Name))
 
 			if err != nil {
-				responseWithError(w, 501, fmt.Sprintf("Cannot create container : %s", err.Error()))
+				responseWithError(w, 501, fmt.Sprintf("Cannot create Kali-container : %s", err.Error()))
 				return
 			}
 
-			containrChan <- ContainerDet{ContainerID: createdContainer.ID, Message: "Container created successFully"}
+			createdCtfContainer, err := dockerCLi.dockerClinet.ContainerCreate(context.Background(),
+				&container.Config{
+					Image: DEFAULT_CTF_TAG,
+					ExposedPorts: nat.PortSet{
+						"3000/tcp": struct{}{},
+					},
+				},
+				&container.HostConfig{
+					PortBindings: nat.PortMap{
+						"3000/tcp": []nat.PortBinding{
+							{
+								HostIP:   "0.0.0.0",
+								HostPort: fmt.Sprintf("%d", (6000 + len(allSessions)*2 + 1)),
+							},
+						},
+					},
+					NetworkMode: container.NetworkMode(userNetWorkId),
+				}, nil, nil,
+				fmt.Sprintf("%s-ctf", userData.Name))
 
-			log.Println("Created :", createdContainer.ID)
+			if err != nil {
+				dockerCLi.dockerClinet.ContainerRemove(context.Background(), createdKaliContainer.ID, container.RemoveOptions{
+					Force: true,
+				})
+				responseWithError(w, 501, fmt.Sprintf("Cannot create Ctf-container : %s", err.Error()))
+				return
+			}
+
+			containrChan <- ContainerDet{KaliContainerID: createdKaliContainer.ID,
+				CtfContainerID: createdCtfContainer.ID,
+				UserNetwork:    userNet.ID,
+				Message:        "Containers created...."}
+
+			log.Println("Created :", createdKaliContainer.ID)
 
 		}(containerChan)
 
@@ -153,36 +234,3 @@ func (dockerCLi *DockerConfig) startDockerContainer(w http.ResponseWriter, r *ht
 
 	}
 }
-
-// func startDockerContainer2(w http.ResponseWriter, r *http.Request) {
-
-// 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-
-// 	if err != nil {
-// 		log.Println(err.Error())
-// 		return
-// 	}
-
-// 	crCtn, err := cli.ContainerCreate(context.Background(), &container.Config{
-// 		Image: DEFAULT_IMAGE_TAG,
-// 		Cmd: []string{
-// 			"tail", "-f", "/dev/null",
-// 		},
-// 	}, &container.HostConfig{
-// 		RestartPolicy: container.RestartPolicy{
-// 			Name: container.RestartPolicyUnlessStopped,
-// 		},
-// 	}, nil, nil, "test")
-
-// 	if err != nil {
-// 		log.Println(err)
-// 		return
-// 	}
-
-// 	if err := cli.ContainerStart(context.Background(), crCtn.ID, container.StartOptions{}); err != nil {
-// 		log.Println(err.Error())
-// 	}
-
-// 	log.Println("Test container strated")
-
-// }
