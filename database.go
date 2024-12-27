@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -12,8 +13,9 @@ const (
 )
 
 type User struct {
-	Name string `json:"name"`
-	Age  int    `json:"age"`
+	Uid      uuid.UUID `json:"uid"`
+	Name     string    `json:"name"`
+	Password string    `json:"password"`
 }
 
 func initDataBase() (database *sql.DB) {
@@ -24,9 +26,9 @@ func initDataBase() (database *sql.DB) {
 	}
 
 	createUserTable := `CREATE TABLE IF NOT EXISTS Users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		age INTEGER
+		id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL UNIQUE,          
+        password TEXT NOT NULL 
 	);`
 	_, err = db.Exec(createUserTable)
 
@@ -38,49 +40,68 @@ func initDataBase() (database *sql.DB) {
 	return db
 }
 
-func insertUser(db *sql.DB, user *User) (res interface{}, error error) {
-	inUser := `INSERT INTO users (name, age) VALUES (?, ?)`
-	res, err := db.Exec(inUser, user.Name, user.Age)
+func insertUser(db *sql.DB, user *User) (res sql.Result, error error) {
+	inUser := `INSERT INTO Users (id, name, password) VALUES (?, ?, ?)`
+	data, err := db.Exec(inUser, user.Uid, user.Name, user.Password)
+
 	if err != nil {
-		return "", err
+		return nil, err
 	} else {
-		return res, nil
+		return data, nil
+	}
+}
+
+func getUserDetails(db *sql.DB, uName string) (userId string, userName string, passwords string, error error) {
+	selectUser := `SELECT id AS uid,name,password FROM Users WHERE name = ?`
+
+	data := db.QueryRow(selectUser, uName)
+
+	var id string
+	var name string
+	var password string
+
+	err := data.Scan(&id, &name, &password)
+
+	if err != nil {
+		return "", "", "", err
+	} else {
+		return id, name, password, nil
 	}
 
 }
 
-func getUsers(db *sql.DB) (rows interface{}, error error) {
-	selectUser := `SELECT * from Users`
+// func getUsers(db *sql.DB) (rows interface{}, error error) {
+// 	selectUser := `SELECT * from Users`
 
-	res, err := db.Query(selectUser)
+// 	res, err := db.Query(selectUser)
 
-	type Data struct {
-		Id   int    `json:"id"`
-		Name string `json:"name"`
-		Age  int    `json:"age"`
-	}
+// 	type Data struct {
+// 		Id   int    `json:"id"`
+// 		Name string `json:"name"`
+// 		Age  int    `json:"age"`
+// 	}
 
-	if err != nil {
-		return "", err
-	} else {
-		var alldata []Data
-		for res.Next() {
-			var id, age int
-			var name string
+// 	if err != nil {
+// 		return "", err
+// 	} else {
+// 		var alldata []Data
+// 		for res.Next() {
+// 			var id, age int
+// 			var name string
 
-			if err := res.Scan(&id, &name, &age); err != nil {
-				log.Println("Cannot find all the data")
-				return
-			}
-			alldata = append(alldata, Data{
-				Id:   id,
-				Name: name,
-				Age:  age,
-			})
+// 			if err := res.Scan(&id, &name, &age); err != nil {
+// 				log.Println("Cannot find all the data")
+// 				return
+// 			}
+// 			alldata = append(alldata, Data{
+// 				Id:   id,
+// 				Name: name,
+// 				Age:  age,
+// 			})
 
-		}
+// 		}
 
-		return alldata, nil
-	}
+// 		return alldata, nil
+// 	}
 
-}
+// }

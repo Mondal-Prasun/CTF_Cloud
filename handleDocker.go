@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/google/uuid"
 )
 
 const (
@@ -104,8 +105,7 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 		containerChan := make(chan ContainerDet)
 
 		type Data struct {
-			// Uuid uuid.UUID `json:"uid"`
-			Name string `json:"name"`
+			Uuid uuid.UUID `json:"uid"`
 		}
 
 		userData := Data{}
@@ -119,9 +119,8 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 
 		go func(containrChan chan<- ContainerDet, userData *Data) {
 
-			////MARK:change userData.Name to userData.Uuid
 			// private network for indevidual user for isolation
-			userNetWorkId := fmt.Sprintf("network-%s", userData.Name)
+			userNetWorkId := fmt.Sprintf("network-%s", userData.Uuid)
 			userNet, err := dockerCLi.dockerClinet.NetworkCreate(context.Background(), userNetWorkId, network.CreateOptions{})
 
 			kaliCntPort := fmt.Sprintf("%d", (8000 + len(allSessions)*2 + 1))
@@ -154,7 +153,7 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 				},
 			},
 				nil, nil,
-				fmt.Sprintf("%s-kali", userData.Name))
+				fmt.Sprintf("%s-kali", userData.Uuid))
 
 			if err != nil {
 				containrChan <- ContainerDet{KaliContainerID: "", CtfContainerID: "", UserNetwork: "", Message: err.Error(), Created: false}
@@ -179,7 +178,7 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 					},
 					NetworkMode: container.NetworkMode(userNetWorkId),
 				}, nil, nil,
-				fmt.Sprintf("%s-ctf", userData.Name))
+				fmt.Sprintf("%s-ctf", userData.Uuid))
 
 			if err != nil {
 				dockerCLi.dockerClinet.ContainerRemove(context.Background(), createdKaliContainer.ID, container.RemoveOptions{
@@ -203,9 +202,8 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 		}(containerChan, &userData)
 
 		res := <-containerChan
-		//MARK:Change this also
 		if res.Created {
-			allSessions[userData.Name] = UserSession{
+			allSessions[userData.Uuid.String()] = UserSession{
 				KaliUrl: res.KaliUrl,
 				CtfUrl:  res.CtfUrl,
 			}

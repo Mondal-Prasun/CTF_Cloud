@@ -38,8 +38,9 @@ func main() {
 	dockerCli.initilizeDockerImage()
 
 	mux.HandleFunc("/health", healthCheck)
-	mux.HandleFunc("/addUser", dbCfg.insertUserHandler)
-	mux.HandleFunc("/getUsers", dbCfg.getAllData)
+	mux.HandleFunc("/signIn", dbCfg.insertUserHandler)
+	// mux.HandleFunc("/getUsers", dbCfg.getAllData)
+	mux.HandleFunc("/logIn", dbCfg.getUserDetails)
 
 	mux.HandleFunc("/createContainer", dockerCli.createDockerContainer)
 	mux.HandleFunc("/startContainer", dockerCli.startDockerContainer)
