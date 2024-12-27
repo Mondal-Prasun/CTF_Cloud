@@ -24,7 +24,7 @@ type UserSession struct {
 	CtfUrl  string `json:"ctf-url"`
 }
 
-var allSessions map[string]UserSession
+var allSessions = make(map[string]UserSession)
 
 func initDockerClient() *client.Client {
 	log.Println("Initilizing docker")
@@ -91,36 +91,44 @@ func (dockerCLi *DockerConfig) initilizeDockerImage() {
 func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *http.Request) {
 	type ContainerDet struct {
 		KaliContainerID string `json:"kaliCtnId"`
+		KaliUrl         string `json:"kaliUrl"`
 		CtfContainerID  string `json:"ctfCtnId"`
+		CtfUrl          string `json:"ctfUrl"`
 		UserNetwork     string `json:"netId"`
 		Message         string `json:"msg"`
+		Created         bool   `json:"created"`
 	}
 
 	if r.Method == http.MethodPost {
 
 		containerChan := make(chan ContainerDet)
 
-		go func(containrChan chan<- ContainerDet) {
+		type Data struct {
+			// Uuid uuid.UUID `json:"uid"`
+			Name string `json:"name"`
+		}
 
-			userData := struct {
-				// Uuid uuid.UUID `json:"uid"`
-				Name string `json:"name"`
-			}{}
+		userData := Data{}
 
-			decoder := json.NewDecoder(r.Body)
+		decoder := json.NewDecoder(r.Body)
 
-			if err := decoder.Decode(&userData); err != nil {
-				responseWithError(w, 300, "json is not valid..")
-				return
-			}
+		if err := decoder.Decode(&userData); err != nil {
+			responseWithError(w, 300, err.Error())
+			return
+		}
+
+		go func(containrChan chan<- ContainerDet, userData *Data) {
 
 			////MARK:change userData.Name to userData.Uuid
 			// private network for indevidual user for isolation
 			userNetWorkId := fmt.Sprintf("network-%s", userData.Name)
 			userNet, err := dockerCLi.dockerClinet.NetworkCreate(context.Background(), userNetWorkId, network.CreateOptions{})
 
+			kaliCntPort := fmt.Sprintf("%d", (8000 + len(allSessions)*2 + 1))
+			ctfCntPort := fmt.Sprintf("%d", (6000 + len(allSessions)*2 + 1))
+
 			if err != nil {
-				responseWithError(w, 503, err.Error())
+				containrChan <- ContainerDet{KaliContainerID: "", CtfContainerID: "", UserNetwork: "", Message: err.Error(), Created: false}
 				return
 			}
 
@@ -136,7 +144,7 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 					"6969/tcp": []nat.PortBinding{
 						{
 							HostIP:   "0.0.0.0",
-							HostPort: fmt.Sprintf("%d", (8000 + len(allSessions)*2 + 1)),
+							HostPort: kaliCntPort,
 						},
 					},
 				},
@@ -149,7 +157,7 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 				fmt.Sprintf("%s-kali", userData.Name))
 
 			if err != nil {
-				responseWithError(w, 501, fmt.Sprintf("Cannot create Kali-container : %s", err.Error()))
+				containrChan <- ContainerDet{KaliContainerID: "", CtfContainerID: "", UserNetwork: "", Message: err.Error(), Created: false}
 				return
 			}
 
@@ -165,7 +173,7 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 						"3000/tcp": []nat.PortBinding{
 							{
 								HostIP:   "0.0.0.0",
-								HostPort: fmt.Sprintf("%d", (6000 + len(allSessions)*2 + 1)),
+								HostPort: ctfCntPort,
 							},
 						},
 					},
@@ -177,22 +185,35 @@ func (dockerCLi *DockerConfig) createDockerContainer(w http.ResponseWriter, r *h
 				dockerCLi.dockerClinet.ContainerRemove(context.Background(), createdKaliContainer.ID, container.RemoveOptions{
 					Force: true,
 				})
-				responseWithError(w, 501, fmt.Sprintf("Cannot create Ctf-container : %s", err.Error()))
+				containrChan <- ContainerDet{KaliContainerID: "", CtfContainerID: "", UserNetwork: "", Message: err.Error(), Created: false}
 				return
 			}
 
-			containrChan <- ContainerDet{KaliContainerID: createdKaliContainer.ID,
-				CtfContainerID: createdCtfContainer.ID,
-				UserNetwork:    userNet.ID,
-				Message:        "Containers created...."}
+			containrChan <- ContainerDet{
+				KaliContainerID: createdKaliContainer.ID,
+				KaliUrl:         fmt.Sprintf("192.168.0.101:%s/vnc.html", kaliCntPort),
+				CtfContainerID:  createdCtfContainer.ID,
+				CtfUrl:          fmt.Sprintf("192.168.0.101:%s/", ctfCntPort),
+				UserNetwork:     userNet.ID,
+				Message:         "Containers created....",
+				Created:         true}
 
 			log.Println("Created :", createdKaliContainer.ID)
 
-		}(containerChan)
+		}(containerChan, &userData)
 
 		res := <-containerChan
+		//MARK:Change this also
+		if res.Created {
+			allSessions[userData.Name] = UserSession{
+				KaliUrl: res.KaliUrl,
+				CtfUrl:  res.CtfUrl,
+			}
+			responseWithJson(w, 202, res)
+		} else {
+			responseWithError(w, 503, res.Message)
+		}
 
-		responseWithJson(w, 202, res)
 	}
 }
 
@@ -206,7 +227,8 @@ func (dockerCLi *DockerConfig) startDockerContainer(w http.ResponseWriter, r *ht
 		containerStartChan := make(chan ContainerStartDet)
 		go func(startChan chan<- ContainerStartDet) {
 			data := struct {
-				CntId string `json:"containerId"`
+				KaliCntId string `json:"kaliContainerId"`
+				CtfCntId  string `json:"ctfContainerId"`
 			}{}
 
 			dec := json.NewDecoder(r.Body)
@@ -218,7 +240,7 @@ func (dockerCLi *DockerConfig) startDockerContainer(w http.ResponseWriter, r *ht
 				return
 			}
 
-			err = dockerCLi.dockerClinet.ContainerStart(context.Background(), data.CntId, container.StartOptions{})
+			err = dockerCLi.dockerClinet.ContainerStart(context.Background(), data.KaliCntId, container.StartOptions{})
 
 			if err != nil {
 				startChan <- ContainerStartDet{Start: false, Message: fmt.Sprintf("Cannot start container: %s", err.Error())}
