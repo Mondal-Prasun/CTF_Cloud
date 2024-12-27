@@ -7,24 +7,28 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+const (
+	MAIN_DATABASE_NAME = "user.db"
+)
+
 type User struct {
 	Name string `json:"name"`
 	Age  int    `json:"age"`
 }
 
 func initDataBase() (database *sql.DB) {
-	db, err := sql.Open("sqlite3", "test.db")
+	db, err := sql.Open("sqlite3", MAIN_DATABASE_NAME)
 
 	if err != nil {
 		log.Fatal("Cannot create or connect to sqlite3 driver: ", err)
 	}
 
-	createUser := `CREATE TABLE IF NOT EXISTS Users (
+	createUserTable := `CREATE TABLE IF NOT EXISTS Users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		age INTEGER
 	);`
-	_, err = db.Exec(createUser)
+	_, err = db.Exec(createUserTable)
 
 	if err != nil {
 		log.Fatal("Cannot create table: ", err)

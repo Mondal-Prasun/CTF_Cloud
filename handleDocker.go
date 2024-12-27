@@ -247,6 +247,12 @@ func (dockerCLi *DockerConfig) startDockerContainer(w http.ResponseWriter, r *ht
 				return
 			}
 
+			err = dockerCLi.dockerClinet.ContainerStart(context.Background(), data.CtfCntId, container.StartOptions{})
+
+			if err != nil {
+				startChan <- ContainerStartDet{Start: false, Message: fmt.Sprintf("Cannot start container: %s", err.Error())}
+				return
+			}
 			startChan <- ContainerStartDet{Start: true, Message: "Container started..."}
 		}(containerStartChan)
 
