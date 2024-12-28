@@ -30,8 +30,9 @@ func (dbCfg *DbConfig) insertUserHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
+		useUid := uuid.New()
 		_, err = insertUser(dbCfg.sqlDb, &User{
-			Uid:      uuid.New(),
+			Uid:      useUid,
 			Name:     dataParam.Name,
 			Password: string(hashedPassword),
 		})
@@ -40,13 +41,17 @@ func (dbCfg *DbConfig) insertUserHandler(w http.ResponseWriter, r *http.Request)
 			responseWithError(w, 300, err.Error())
 		}
 
-		responseWithJson(w, 200, "User created")
+		responseWithJson(w, 200, struct {
+			UserId string `json:"userId"`
+		}{
+			UserId: useUid.String(),
+		})
 	}
 
 }
 
 func (dbCfg *DbConfig) getUserDetails(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
+	if r.Method == http.MethodPost {
 		dataParam := struct {
 			UserName string `json:"username"`
 			Password string `json:"password"`

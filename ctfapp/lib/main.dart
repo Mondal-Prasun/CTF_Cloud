@@ -1,4 +1,4 @@
-import 'package:ctfapp/screens/home_screen.dart';
+import 'package:ctfapp/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(
             seedColor: const Color.fromARGB(255, 58, 183, 164)),
       ),
-      home: const HomeScreen(),
+      home: const LoginScreen(),
     );
   }
 }
